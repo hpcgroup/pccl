@@ -1,6 +1,8 @@
-# write an all gather function that can use either nccl or mpi.
+# Copyright 2025 Parallel Software and Systems Group, University of Maryland.
+# See the top-level LICENSE file for details.
 #
-# all_gather.py
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 
 import torch
 import torch.distributed as dist
