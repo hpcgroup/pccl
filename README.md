@@ -41,7 +41,7 @@ For development mode (editable installation):
 pip install -e .
 ```
 
-⚠️ If you forget to install torch or mpi4py beforehand, installation will fail with a helpful error message.
+> ⚠️ If you forget to install `torch` or `mpi4py` beforehand, installation will fail with a helpful error message.
 
 #### 2. 📥 Installing from PyPI
 You can also install PCCL directly from PyPI
