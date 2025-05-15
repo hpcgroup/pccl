@@ -25,9 +25,9 @@ pip install ninja
 
 If ninja is not installed, PCCL will fall back to the default (slower) build system.
 
-📦 Installing PCCL
+### 📦 Installing PCCL
 
-1. 🔨 Building from Source (Recommended for Development)
+#### 1. 🔨 Building from Source (Recommended for Development)
 Clone the repository and run the following inside the root directory:
 
 ```bash
@@ -45,7 +45,7 @@ pip install -e .
 
 ⚠️ If you forget to install torch or mpi4py beforehand, installation will fail with a helpful error message.
 
-2. 📥 Installing from PyPI
+#### 2. 📥 Installing from PyPI
 You can also install PCCL directly from PyPI
 
 ```bash
@@ -55,7 +55,7 @@ pip install pccl
 Note: This will install the prebuilt package if available. If no prebuilt wheels are published for your platform, pip will attempt to build from source.
 
 
-✉️ Citing PCCL
+## ✉️ Citing PCCL
 If you use PCCL in your research, please cite our work:
 
 ```bibtex
