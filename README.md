@@ -1,7 +1,5 @@
 # PCCL: Performant Collective Communication Library
 
-**Authors:** Siddharth Singh, Abhinav Bhatele
-
 PCCL is a high-performance collective communication library with MPI-based C++/CUDA extensions for PyTorch. It provides efficient implementations of collectives such as `all_gather` and `reduce_scatter` to accelerate distributed training workflows.
 
 ---
