@@ -1,5 +1,6 @@
-import torch 
-from mpi4py import MPI 
+import torch
+from mpi4py import MPI
+
 
 def _torch_to_mpi(tensor: torch.Tensor):
     """Converts a PyTorch tensor into an mpi4py compatible array using its

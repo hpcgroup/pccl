@@ -21,10 +21,10 @@ class Request:
             ValueError: If the request type is unsupported.
         """
         if isinstance(request, dist.Work):
-            self.backend = 'torch'
+            self.backend = "torch"
             self.request = request
         elif isinstance(request, MPI.Request):
-            self.backend = 'mpi'
+            self.backend = "mpi"
             self.request = request
         else:
             raise ValueError(
@@ -37,7 +37,7 @@ class Request:
         Wait for the request to complete and optionally execute an epilogue function.
 
         Args:
-            epilogue (Callable[[Any], None], optional): 
+            epilogue (Callable[[Any], None], optional):
                 A function to be executed after the wait completes.
                 It receives the result of the wait as its argument.
                 Defaults to None.
@@ -50,11 +50,11 @@ class Request:
         Raises:
             ValueError: If the backend is unsupported.
         """
-        if self.backend == 'torch':
+        if self.backend == "torch":
             # Wait for the torch.distributed request to complete
             self.request.wait()
             result = None
-        elif self.backend == 'mpi':
+        elif self.backend == "mpi":
             # Wait for the mpi4py request to complete and get the status
             status = MPI.Status()
             self.request.Wait(status)
@@ -75,6 +75,5 @@ class Request:
 
         return result
 
-   
     def __repr__(self) -> str:
         return f"<Request backend={self.backend} request={self.request}>"

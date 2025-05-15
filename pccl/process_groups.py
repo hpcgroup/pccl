@@ -3,17 +3,19 @@ import torch.distributed as dist
 from mpi4py import MPI
 from typing import List, Union, Optional
 
+
 class ProcessGroups:
     """
     A utility class to create and manage 2D Cartesian grids of process groups
     using MPI and NCCL backends.
     """
+
     def __init__(
         self,
         intra_group_size: int,
         inter_group_size: int,
         inner_group_backend: str = "nccl",
-        outer_group_backend: str = "mpi"
+        outer_group_backend: str = "mpi",
     ):
         """
         Initialize the ProcessGroups by creating a 2D grid of process groups.
@@ -32,12 +34,14 @@ class ProcessGroups:
         """
         # Validate backends
         # Create process groups
-        assert dist.is_initialized(), "pytorch distributed should be initialized by the user"
+        assert (
+            dist.is_initialized()
+        ), "pytorch distributed should be initialized by the user"
         self.inner_group, self.outer_group = self.create_2D_grid(
             intra_group_size=intra_group_size,
             inter_group_size=inter_group_size,
             inner_group_backend=inner_group_backend,
-            outer_group_backend=outer_group_backend
+            outer_group_backend=outer_group_backend,
         )
 
     @staticmethod
@@ -45,7 +49,7 @@ class ProcessGroups:
         intra_group_size: int,
         inter_group_size: int,
         inner_group_backend: str = "nccl",
-        outer_group_backend: str = "mpi"
+        outer_group_backend: str = "mpi",
     ) -> List[Union[dist.ProcessGroup, MPI.Comm]]:
         """
         Create a 2D Cartesian grid of process groups.
@@ -55,13 +59,13 @@ class ProcessGroups:
         Args:
             intra_group_size (int): Size of the inner (intra-group) dimension.
             inter_group_size (int): Size of the outer (inter-group) dimension.
-            inner_group_backend (str, optional): Backend for the inner groups. 
+            inner_group_backend (str, optional): Backend for the inner groups.
                 Must be either "mpi" or "nccl". Defaults to "nccl".
-            outer_group_backend (str, optional): Backend for the outer groups. 
+            outer_group_backend (str, optional): Backend for the outer groups.
                 Must be either "mpi" or "nccl". Defaults to "mpi".
 
         Returns:
-            List[Union[dist.ProcessGroup, MPI.Comm]]: A list containing the 
+            List[Union[dist.ProcessGroup, MPI.Comm]]: A list containing the
                 inner and outer process groups for the current process.
                 - If the backend is "nccl", the group is a torch.distributed.ProcessGroup.
                 - If the backend is "mpi", the group is an mpi4py.MPI.Comm object.
@@ -74,14 +78,20 @@ class ProcessGroups:
         # Validate backends
         valid_backends = ["mpi", "nccl"]
         if inner_group_backend not in valid_backends:
-            raise ValueError(f"Unsupported inner_group_backend '{inner_group_backend}'. Choose 'mpi' or 'nccl'.")
+            raise ValueError(
+                f"Unsupported inner_group_backend '{inner_group_backend}'. Choose 'mpi' or 'nccl'."
+            )
         if outer_group_backend not in valid_backends:
-            raise ValueError(f"Unsupported outer_group_backend '{outer_group_backend}'. Choose 'mpi' or 'nccl'.")
+            raise ValueError(
+                f"Unsupported outer_group_backend '{outer_group_backend}'. Choose 'mpi' or 'nccl'."
+            )
 
         # Ensure torch.distributed is initialized if NCCL is used
         if inner_group_backend == "nccl" or outer_group_backend == "nccl":
             if not dist.is_initialized():
-                raise RuntimeError("torch.distributed is not initialized. Please initialize it before creating groups.")
+                raise RuntimeError(
+                    "torch.distributed is not initialized. Please initialize it before creating groups."
+                )
 
         # Get rank and world size from torch.distributed
         rank = dist.get_rank()
@@ -95,7 +105,9 @@ class ProcessGroups:
             )
 
         num_2d_grids = world_size // (intra_group_size * inter_group_size)
-        process_group_grid = np.arange(world_size).reshape(num_2d_grids, inter_group_size, intra_group_size)
+        process_group_grid = np.arange(world_size).reshape(
+            num_2d_grids, inter_group_size, intra_group_size
+        )
 
         inner_group: Optional[Union[dist.ProcessGroup, MPI.Comm]] = None
         outer_group: Optional[Union[dist.ProcessGroup, MPI.Comm]] = None
@@ -112,10 +124,9 @@ class ProcessGroups:
                     this_inner_group = dist.new_group(ranks=ranks, backend="nccl")
                     if rank in ranks:
                         inner_group = this_inner_group
-                        
 
         elif inner_group_backend == "mpi":
-            color = rank // intra_group_size # unique color for each node 
+            color = rank // intra_group_size  # unique color for each node
             inner_group_comm = MPI.COMM_WORLD.Split(color)
             inner_group = inner_group_comm
 
@@ -130,29 +141,34 @@ class ProcessGroups:
                     this_outer_group = dist.new_group(ranks=ranks, backend="nccl")
                     if rank in ranks:
                         outer_group = this_outer_group
-                        
 
         elif outer_group_backend == "mpi":
             # second term advances the color by the number of process per node in each 2d group
-            color = rank % intra_group_size + (rank // (intra_group_size * inter_group_size)) * (intra_group_size) 
+            color = rank % intra_group_size + (
+                rank // (intra_group_size * inter_group_size)
+            ) * (intra_group_size)
             outer_group_comm = MPI.COMM_WORLD.Split(color)
             outer_group = outer_group_comm
 
         # Final Checks
         if inner_group is None:
-            raise RuntimeError("Failed to create the inner group for the current process.")
+            raise RuntimeError(
+                "Failed to create the inner group for the current process."
+            )
         if outer_group is None:
-            raise RuntimeError("Failed to create the outer group for the current process.")
+            raise RuntimeError(
+                "Failed to create the outer group for the current process."
+            )
 
         groups = [inner_group, outer_group]
         return groups
-    
+
     def get_rank(self, group_index: Optional[int] = None) -> Union[int, List[int]]:
         """
         Get the rank of the current process within the specified process groups.
 
         Args:
-            group_index (int, optional): 
+            group_index (int, optional):
                 If None, returns a list [inner_rank, outer_rank].
                 If 0, returns the rank in the inner group.
                 If 1, returns the rank in the outer group.
@@ -175,12 +191,14 @@ class ProcessGroups:
         else:
             raise ValueError("group_index must be 0 (inner) or 1 (outer).")
 
-    def get_world_size(self, group_index: Optional[int] = None) -> Union[int, List[int]]:
+    def get_world_size(
+        self, group_index: Optional[int] = None
+    ) -> Union[int, List[int]]:
         """
         Get the world size of the specified process groups.
 
         Args:
-            group_index (int, optional): 
+            group_index (int, optional):
                 If None, returns a list [inner_world_size, outer_world_size].
                 If 0, returns the world size of the inner group.
                 If 1, returns the world size of the outer group.
@@ -201,7 +219,9 @@ class ProcessGroups:
         elif group_index == 1:
             return self._get_world_size_internal(self.outer_group)
         else:
-            raise ValueError("group_index must be 0 (inner) or 1 (outer) or None (for both).")
+            raise ValueError(
+                "group_index must be 0 (inner) or 1 (outer) or None (for both)."
+            )
 
     def _get_rank_internal(self, group: Union[dist.ProcessGroup, MPI.Comm]) -> int:
         """
@@ -220,7 +240,9 @@ class ProcessGroups:
         else:
             raise TypeError("Unsupported group type.")
 
-    def _get_world_size_internal(self, group: Union[dist.ProcessGroup, MPI.Comm]) -> int:
+    def _get_world_size_internal(
+        self, group: Union[dist.ProcessGroup, MPI.Comm]
+    ) -> int:
         """
         Internal method to get the world size within a process group.
 
@@ -258,6 +280,4 @@ class ProcessGroups:
     def __repr__(self) -> str:
         inner_backend = "MPI" if isinstance(self.inner_group, MPI.Comm) else "NCCL"
         outer_backend = "MPI" if isinstance(self.outer_group, MPI.Comm) else "NCCL"
-        return (
-            f"<ProcessGroups inner_group_backend={inner_backend}, outer_group_backend={outer_backend}>"
-        )
+        return f"<ProcessGroups inner_group_backend={inner_backend}, outer_group_backend={outer_backend}>"

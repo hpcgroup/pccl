@@ -24,6 +24,7 @@ import mpi4py
 # === Optional ninja ===
 try:
     import ninja
+
     USE_NINJA = True
 except ImportError:
     USE_NINJA = False
@@ -49,24 +50,25 @@ class BuildExtensionWithNinja(BuildExtension):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, use_ninja=True, **kwargs)
 
+
 # === Setup ===
 setup(
-    name='pccl',
-    version='0.1.0',
-    packages=find_packages(where='.'),
+    name="pccl",
+    version="0.1.0",
+    packages=find_packages(where="."),
     package_dir={"pccl": "pccl"},
     ext_modules=[
         CppExtension(
-            name='pccl_mpi_extension',
+            name="pccl_mpi_extension",
             sources=sources,
-            extra_compile_args=['-O3', f"-I{mpi4py.get_include()}"],
+            extra_compile_args=["-O3", f"-I{mpi4py.get_include()}"],
             extra_include_paths=extra_include_paths,
         )
     ],
-    cmdclass={'build_ext': BuildExtensionWithNinja},
+    cmdclass={"build_ext": BuildExtensionWithNinja},
     install_requires=[],  # torch and mpi4py are manually checked above
-    author='Siddharth Singh, Abhinav Bhatele',
-    description='Performant Collective Communication Library',
+    author="Siddharth Singh, Abhinav Bhatele",
+    description="Performant Collective Communication Library",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/your-org/pccl",
@@ -75,5 +77,5 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.7',
+    python_requires=">=3.7",
 )

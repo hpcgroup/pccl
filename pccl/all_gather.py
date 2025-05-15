@@ -1,5 +1,5 @@
 # write an all gather function that can use either nccl or mpi.
-#  
+#
 # all_gather.py
 
 import torch
@@ -9,23 +9,26 @@ from typing import List, Optional, Union
 from .request import Request
 from .process_groups import ProcessGroups
 import numpy as np
-import pccl_mpi_extension 
+import pccl_mpi_extension
 from .utils import _torch_to_mpi
 
-def recursive_doubling_allgather_mpi(output_tensor: torch.Tensor,
-                                       input_tensor: torch.Tensor,
-                                       group: Optional[MPI.Comm] = None,
-                                       async_op: bool = False,):
+
+def recursive_doubling_allgather_mpi(
+    output_tensor: torch.Tensor,
+    input_tensor: torch.Tensor,
+    group: Optional[MPI.Comm] = None,
+    async_op: bool = False,
+):
     """
-    Performs a recursive doubling based all-gather on CUDA tensors using MPI point-to-point 
+    Performs a recursive doubling based all-gather on CUDA tensors using MPI point-to-point
     Sendrecv operations.
-    
-    Each process starts with a 1D input_tensor (its local block of data) and the final output_tensor 
-    is a 1D tensor of size (P * block_size) where the data from process i is stored in 
+
+    Each process starts with a 1D input_tensor (its local block of data) and the final output_tensor
+    is a 1D tensor of size (P * block_size) where the data from process i is stored in
     output_tensor[i*block_size:(i+1)*block_size].
-    
+
     This implementation assumes that the number of processes (P) is a power of 2.
-    
+
     Parameters:
       output_tensor : torch.Tensor
           Pre-allocated tensor of shape (P * block_size,) on a CUDA device.
@@ -43,7 +46,9 @@ def recursive_doubling_allgather_mpi(output_tensor: torch.Tensor,
 
     # Determine block size and ensure output_tensor is large enough.
     block_size = input_tensor.numel()
-    assert output_tensor.numel() == size * block_size, "Output tensor has incorrect size"
+    assert (
+        output_tensor.numel() == size * block_size
+    ), "Output tensor has incorrect size"
 
     # Copy local data into the proper slot.
     output_tensor[rank * block_size : (rank + 1) * block_size].copy_(input_tensor)
@@ -52,7 +57,9 @@ def recursive_doubling_allgather_mpi(output_tensor: torch.Tensor,
     torch.cuda.current_stream().synchronize()
 
     # Recursive doubling: at each step, the segment size doubles.
-    seg_size = 1  # number of blocks currently gathered (each process starts with 1 block)
+    seg_size = (
+        1  # number of blocks currently gathered (each process starts with 1 block)
+    )
     while seg_size < size:
         # The partner for this step is computed using a bitwise XOR.
         partner = rank ^ seg_size
@@ -83,12 +90,17 @@ def recursive_doubling_allgather_mpi(output_tensor: torch.Tensor,
         torch.cuda.current_stream().synchronize()
 
         # Exchange the contiguous segment with the partner.
-        comm.Sendrecv(sendbuf=output_tensor[send_offset:send_offset + count],
-                      dest=partner, sendtag=0,
-                      recvbuf=tmp, source=partner, recvtag=0)
+        comm.Sendrecv(
+            sendbuf=output_tensor[send_offset : send_offset + count],
+            dest=partner,
+            sendtag=0,
+            recvbuf=tmp,
+            source=partner,
+            recvtag=0,
+        )
 
         # Place the received data into the proper position in output_tensor.
-        output_tensor[recv_offset:recv_offset + count].copy_(tmp)
+        output_tensor[recv_offset : recv_offset + count].copy_(tmp)
 
         # Double the segment size for the next iteration.
         seg_size *= 2
@@ -102,24 +114,27 @@ def _all_gather(
     group: Optional[Union[dist.ProcessGroup, MPI.Comm]] = None,
     async_op: bool = False,
     use_rd: bool = False,
-    use_pccl_cpp_backend: bool = False
+    use_pccl_cpp_backend: bool = False,
 ) -> Optional[Request]:
 
     # Case 1: torch.distributed.ProcessGroup
     if group is None or isinstance(group, dist.ProcessGroup):
         # Delegate to torch.distributed.all_gather
-        request = dist.all_gather_into_tensor(output_tensor, input_tensor, group, async_op)
+        request = dist.all_gather_into_tensor(
+            output_tensor, input_tensor, group, async_op
+        )
     # Case 2: mpi4py.MPI.Comm
     elif isinstance(group, MPI.Comm):
         # make sure that the cpu is synchronized with the current stream
         if use_rd:
             if use_pccl_cpp_backend:
-                request = pccl_mpi_extension.all_gather_mpi(output_tensor, 
-                                              input_tensor, 
-                                              group,
-                                            "recursive")
+                request = pccl_mpi_extension.all_gather_mpi(
+                    output_tensor, input_tensor, group, "recursive"
+                )
             else:
-                request = recursive_doubling_allgather_mpi(output_tensor, input_tensor, group, async_op)
+                request = recursive_doubling_allgather_mpi(
+                    output_tensor, input_tensor, group, async_op
+                )
         else:
             torch.cuda.current_stream().synchronize()
             if async_op:
@@ -131,31 +146,53 @@ def _all_gather(
             f"Unsupported group type: {type(group)}. "
             "Expected torch.distributed.ProcessGroup or mpi4py.MPI.Comm."
         )
-    return request 
+    return request
 
-def all_gather_2D(output_tensor: torch.Tensor,
+
+def all_gather_2D(
+    output_tensor: torch.Tensor,
     input_tensor: torch.Tensor,
     group: Optional[ProcessGroups] = None,
     async_op: bool = False,
-    use_rd: bool=False,
-    use_pccl_cpp_backend: bool = True):
+    use_rd: bool = False,
+    use_pccl_cpp_backend: bool = True,
+):
 
     assert not async_op, "Non blocking version not implemented"
 
-    assert input_tensor.dim() == 1 and output_tensor.dim() == 1, "all_gather_2D only admits 1D tensors"
+    assert (
+        input_tensor.dim() == 1 and output_tensor.dim() == 1
+    ), "all_gather_2D only admits 1D tensors"
     intra_node_group_size, inter_node_group_size = group.get_world_size()
 
-
-    # Step-1 inter-node all-gather 
-    output_intermediate = torch.empty(input_tensor.size(0) * inter_node_group_size, 
-                                      device=input_tensor.device, 
-                                      dtype=input_tensor.dtype)
-    _all_gather(output_intermediate, input_tensor, group.get_outer_group(), async_op=False, use_rd=use_rd, use_pccl_cpp_backend=use_pccl_cpp_backend)
+    # Step-1 inter-node all-gather
+    output_intermediate = torch.empty(
+        input_tensor.size(0) * inter_node_group_size,
+        device=input_tensor.device,
+        dtype=input_tensor.dtype,
+    )
+    _all_gather(
+        output_intermediate,
+        input_tensor,
+        group.get_outer_group(),
+        async_op=False,
+        use_rd=use_rd,
+        use_pccl_cpp_backend=use_pccl_cpp_backend,
+    )
 
     # Step-2 intra-node all-gather
-    _all_gather(output_tensor, output_intermediate, group.get_inner_group(), async_op=False, use_rd=use_rd, use_pccl_cpp_backend=use_pccl_cpp_backend)
+    _all_gather(
+        output_tensor,
+        output_intermediate,
+        group.get_inner_group(),
+        async_op=False,
+        use_rd=use_rd,
+        use_pccl_cpp_backend=use_pccl_cpp_backend,
+    )
 
-    output_unpermuted = output_tensor.view(intra_node_group_size, inter_node_group_size, -1).transpose(0, 1).reshape(-1)
+    output_unpermuted = (
+        output_tensor.view(intra_node_group_size, inter_node_group_size, -1)
+        .transpose(0, 1)
+        .reshape(-1)
+    )
     output_tensor.copy_(output_unpermuted)
-
-
