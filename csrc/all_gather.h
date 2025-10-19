@@ -11,8 +11,13 @@
 
 void recursiveDoublingAllGatherGPU(void* output, 
                                   const void* input, 
-                                  int total_elems, 
+                                  int64_t total_elems, 
                                   void* recv_buf,  
                                   MPI_Comm comm = MPI_COMM_WORLD);
+
+void ringAllGatherGPU(void* output,
+                      const void* input,
+                      int64_t total_elems,
+                      MPI_Comm comm);
 
 #endif // ALL_GATHER_H

@@ -11,14 +11,14 @@
 
 void recursiveHalvingReduceScatterGPU(float* output, 
     const float* input, 
-    int total_elems,
+    int64_t total_elems,
     float* buf, 
     float* recv_buf, 
     MPI_Comm comm = MPI_COMM_WORLD);
 
 void ringReduceScatterGPU(float* output, 
     const float* input, 
-    int total_elems, 
+    int64_t total_elems, 
     float* d_buf, 
     float* d_send, 
     float* d_tmp, 

@@ -18,7 +18,7 @@
 //  - comm: MPI communicator (default MPI_COMM_WORLD).
 void recursiveDoublingAllGatherGPU(void* output, 
                                   const void* input, 
-                                  int total_elems, 
+                                  int64_t total_elems, 
                                   void* recv_buf,  // Same as output size
                                   MPI_Comm comm) {
     
@@ -27,7 +27,7 @@ void recursiveDoublingAllGatherGPU(void* output,
     MPI_Comm_size(comm, &size);
 
     assert(total_elems % size == 0 && "Input tensor size must be divisible by number of processes");
-    int block_size = total_elems / size;
+    int64_t block_size = total_elems / size;
 
     auto stream = at::cuda::getCurrentCUDAStream();
 
@@ -69,5 +69,52 @@ void recursiveDoublingAllGatherGPU(void* output,
         seg_size *= 2;
     }
     
+    CUDA_CHECK(cudaEventDestroy(stream_sync_event));
+}
+
+void ringAllGatherGPU(void* output,
+                      const void* input,
+                      int64_t total_elems,
+                      MPI_Comm comm) {
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+    
+    assert(total_elems % size == 0 && "Input tensor size must be divisible by number of processes");
+    int64_t block_size = total_elems / size;
+    // printf("[Rank %d] block_size = %d\n", rank, block_size);
+
+    auto stream = at::cuda::getCurrentCUDAStream();
+    cudaEvent_t stream_sync_event;
+
+    // Copy local input into its designated block in the output buffer.
+    CUDA_CHECK(cudaMemcpyAsync(static_cast<char*>(output) + rank * block_size, 
+                             input, 
+                             block_size, 
+                             cudaMemcpyDeviceToDevice, 
+                             stream));
+
+    CUDA_CHECK(cudaEventCreateWithFlags(&stream_sync_event, cudaEventDisableTiming));
+
+    // P-1 rounds each sending N/P data (where P is num processes, N is total data size)
+    for (int step = 0; step < size - 1; step++) {
+        // Compute block indices
+        int send_idx = (rank - step + size) % size;
+        int recv_idx = (rank - step - 1 + size) % size;
+        int send_peer = (rank + 1) % size;
+        int recv_peer = (rank - 1 + size) % size;
+        
+        // Record an event on the cuda stream.
+        CUDA_CHECK(cudaEventRecord(stream_sync_event, stream));
+        // Wait for the copy to complete.
+        CUDA_CHECK(cudaEventSynchronize(stream_sync_event));
+        
+        // Send the block to the right neighbor and receive from the left neighbor.
+        MPI_Sendrecv(static_cast<char*>(output) + send_idx * block_size, block_size, MPI_BYTE, send_peer, 0,
+                     static_cast<char*>(output) + recv_idx * block_size, block_size, MPI_BYTE, recv_peer, 0,
+                     comm, MPI_STATUS_IGNORE);
+    }
+
+    // destroy event
     CUDA_CHECK(cudaEventDestroy(stream_sync_event));
 }

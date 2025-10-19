@@ -109,12 +109,81 @@ def recursive_doubling_allgather_mpi(
 
     # At the end, output_tensor holds blocks from rank 0, 1, ..., size-1 in order.
 
+def ring_allgather_mpi(output_tensor: torch.Tensor,
+                       input_tensor: torch.Tensor,
+                       group: Optional[MPI.Comm] = None,
+                       async_op: bool = False):
+    """
+    Performs a ring-based reduce-scatter using torch tensors.
+    
+    Each process holds a 1D tensor of shape (N/P, P), where P is the number of
+    processes and N is the block size. Each row of the tensor corresponds to a 
+    block. The goal is to gather all blocks on every process so that at the 
+    end, each process gets the full tensor of size (N, P).
+    
+    The algorithm performs P-1 steps. At each step, each process:
+      - Sends a designated block to its right neighbor.
+      - Receives a block from its left neighbor.
+      - The received block is places at index equal to the peer's rank
+    
+    Parameters:
+      output_tensor : torch.Tensor
+          Pre-allocated tensor of shape (P * block_size,) on a CUDA device.
+      input_tensor : torch.Tensor
+          1D tensor of shape (block_size,) representing local data.
+      group : Optional[MPI.Comm]
+          MPI communicator; defaults to MPI.COMM_WORLD.
+      async_op : bool
+          Non-blocking operations are not supported in this implementation.
+    """
+    assert not async_op, "non-blocking primitives not supported"
+    comm = MPI.COMM_WORLD if group is None else group
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+
+    # Determine block size and ensure output_tensor is large enough.
+    block_size = input_tensor.numel()
+    assert output_tensor.numel() == size * block_size, "Output tensor has incorrect size"
+
+    # Copy local data into the proper slot.
+    output_tensor[rank * block_size : (rank + 1) * block_size].copy_(input_tensor)
+
+    # Make sure any CUDA work is complete before we start communication.
+    # torch.cuda.current_stream().synchronize()
+
+    # working buffers
+    # tmp = torch.empty(block_size, dtype=input_tensor.dtype, device=input_tensor.device)
+
+    for step in range(size-1):
+        # Adjusted indices
+        send_idx = (rank - step) % size
+        recv_idx = (rank - step - 1) % size
+        # Identify neighbors in the ring
+        send_peer = (rank + 1) % size
+        recv_peer = (rank - 1) % size
+
+        # copy block to be sent
+        # send_data = output_tensor[send_idx * block_size : (send_idx+1) * block_size].clone()
+        
+        torch.cuda.current_stream().synchronize()
+        
+        comm.Sendrecv(
+            sendbuf=output_tensor[send_idx * block_size : (send_idx+1) * block_size], 
+            dest=send_peer, 
+            sendtag=0,
+            recvbuf=output_tensor[recv_idx * block_size : (recv_idx+1) * block_size], 
+            source=recv_peer, 
+            recvtag=0
+        )
+
+    # At the end, output_tensor holds blocks from rank 0, 1, ..., size-1 in order.
 
 def _all_gather(
     output_tensor: torch.Tensor,
     input_tensor: torch.Tensor,
     group: Optional[Union[dist.ProcessGroup, MPI.Comm]] = None,
     async_op: bool = False,
+    directly_call_mpi: bool = False,
     use_rd: bool = False,
     use_pccl_cpp_backend: bool = False,
 ) -> Optional[Request]:
@@ -128,27 +197,32 @@ def _all_gather(
     # Case 2: mpi4py.MPI.Comm
     elif isinstance(group, MPI.Comm):
         # make sure that the cpu is synchronized with the current stream
-        if use_rd:
-            if use_pccl_cpp_backend:
-                request = pccl_mpi_extension.all_gather_mpi(
-                    output_tensor, input_tensor, group, "recursive"
-                )
-            else:
-                request = recursive_doubling_allgather_mpi(
-                    output_tensor, input_tensor, group, async_op
-                )
+        if use_pccl_cpp_backend:
+            request = pccl_mpi_extension.all_gather_mpi(
+                output_tensor, input_tensor, group, "recursive" if use_rd else "ring"
+            )
         else:
-            torch.cuda.current_stream().synchronize()
-            if async_op:
-                request = group.Iallgather(input_tensor, output_tensor)
+            if not directly_call_mpi:
+                if use_rd:
+                    request = recursive_doubling_allgather_mpi(
+                        output_tensor, input_tensor, group, async_op
+                    )
+                else:
+                    request = ring_allgather_mpi(
+                        output_tensor, input_tensor, group, async_op
+                    )
             else:
-                request = group.Allgather(input_tensor, output_tensor)
+                torch.cuda.current_stream().synchronize()
+                if async_op:
+                    request = group.Iallgather(input_tensor, output_tensor)
+                else:
+                    request = group.Allgather(input_tensor, output_tensor)
     else:
         raise TypeError(
             f"Unsupported group type: {type(group)}. "
             "Expected torch.distributed.ProcessGroup or mpi4py.MPI.Comm."
         )
-    return request
+    return request 
 
 
 def all_gather_2D(
