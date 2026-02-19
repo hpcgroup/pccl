@@ -10,6 +10,7 @@
 #include <mpi4py/mpi4py.h>
 #include "reduce_scatter.h"
 #include "all_gather.h"
+#include "all_reduce.h"
 
 
 namespace py = pybind11;
@@ -142,8 +143,98 @@ void all_gather_mpi(const torch::Tensor& output_tensor,
             tmp_wrkspace_tensor_1.data_ptr(),
             //tmp_wrkspace_tensor_2.data_ptr(),
             comm);
+    } else if (algorithm == "ring") {
+        // always use torch tensors. do NOT use malloc.
+        // malloc's have high overheads and will slow your communication down
+        // torch mallocs memory in advance and manages it internally.
+        // therefore these calls are low overheads
+        // auto tmp_wrkspace_tensor_1 = torch::empty_like(output_tensor);
+        // No workspace tensors needed for ring all-gather algorithm
+        ringAllGatherGPU(output_ptr, 
+            input_ptr, 
+            total_elems * dtype_size,
+            comm);
     } else {
     TORCH_CHECK(false, "Unknown algorithm specified for all_gather_mpi: ", algorithm);
+    }
+}
+
+void all_reduce_mpi(const torch::Tensor& output_tensor, 
+    const torch::Tensor& input_tensor, 
+    py::object py_comm,
+    const std::string& algorithm = "recursive")
+{
+    TORCH_CHECK(output_tensor.is_contiguous(), "output tensor must be contiguous.");
+    TORCH_CHECK(input_tensor.is_contiguous(), "input tensor must be contiguous.");
+
+    // Ensure 1D tensors.
+    TORCH_CHECK(output_tensor.dim() == 1, "output tensor must be 1D");
+    TORCH_CHECK(input_tensor.dim() == 1, "input tensor must be 1D");
+
+    // Ensure input and output dtypes are the same
+    TORCH_CHECK(input_tensor.dtype() == output_tensor.dtype(),
+                "Input and output tensors must have the same dtype.");
+
+    // Get MPI rank/size.
+    int rank, size;
+    // Get reference to base communicator
+    MPI_Comm comm = ((PyMPIIntracommObject*)(py_comm.ptr()))->__pyx_base.ob_mpi;
+    
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    // Input tensor has one block
+    int64_t block_size = input_tensor.numel();
+    int64_t total_elems = block_size;
+    // Ensure output tensor is same size as input tensor.
+    TORCH_CHECK(output_tensor.numel() == block_size,
+    "Output tensor must have same size as input tensor");
+
+    // Ensure input tensor divisible by world size.
+    TORCH_CHECK(block_size % size == 0, 
+        "Input tensor size must be divisible by world_size for recursive halving algorithm");
+
+    // Get raw device pointers (assumes tensors reside on GPU).
+    float* output_ptr = output_tensor.data_ptr<float>();
+    const float* input_ptr  = input_tensor.data_ptr<float>();
+    
+    // Call the corresponding GPU reduce-scatter algorithm.
+    if (algorithm == "recursive") {
+        // always use torch tensors. do NOT use malloc.
+        // malloc's have high overheads and will slow your communication down
+        // torch mallocs memory in advance and manages it internally.
+        // therefore these calls are low overheads
+        auto tmp_wrkspace_tensor_1 = torch::empty_like(input_tensor);
+        auto tmp_wrkspace_tensor_2 = torch::empty_like(input_tensor);
+        auto tmp_wrkspace_tensor_4 = torch::empty({block_size / size}, input_tensor.options());
+
+        recursiveHalvingDoublingAllReduceGPU(output_ptr, 
+            input_ptr, 
+            total_elems,
+            tmp_wrkspace_tensor_1.data_ptr<float>(),
+            tmp_wrkspace_tensor_2.data_ptr<float>(),
+            tmp_wrkspace_tensor_4.data_ptr<float>(),
+            comm);
+    } else if (algorithm == "ring") {
+        // always use torch tensors. do NOT use malloc.
+        // malloc's have high overheads and will slow your communication down
+        // torch mallocs memory in advance and manages it internally.
+        // therefore these calls are low overheads
+        auto tmp_wrkspace_tensor_1 = torch::empty({block_size / size}, input_tensor.options());
+        auto tmp_wrkspace_tensor_2 = torch::empty_like(input_tensor);
+        auto tmp_wrkspace_tensor_3 = torch::empty({block_size / size}, input_tensor.options());
+        auto tmp_wrkspace_tensor_4 = torch::empty({block_size / size}, input_tensor.options());
+        
+        ringAllReduceGPU(output_ptr,
+            input_ptr,
+            total_elems,
+            tmp_wrkspace_tensor_1.data_ptr<float>(),
+            tmp_wrkspace_tensor_2.data_ptr<float>(),
+            tmp_wrkspace_tensor_3.data_ptr<float>(),
+            tmp_wrkspace_tensor_4.data_ptr<float>(),
+            comm);
+    } else {
+    TORCH_CHECK(false, "Unknown algorithm specified for all_reduce_mpi: ", algorithm);
     }
 }
 
@@ -151,4 +242,5 @@ void all_gather_mpi(const torch::Tensor& output_tensor,
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("reduce_scatter_mpi", reduce_scatter_mpi);
     m.def("all_gather_mpi", all_gather_mpi);
+    m.def("all_reduce_mpi", all_reduce_mpi);
 }

@@ -39,7 +39,7 @@ def recursive_halving_reduce_scatter_mpi(
 
     At each round the process splits its current buffer (which initially has p blocks)
     into two equal halves. Then:
-      - If the process’s position within its current group is in the lower half, it keeps
+      - If the process's position within its current group is in the lower half, it keeps
         the lower half (which should contain the blocks destined for lower-ranked processes)
         and sends the upper half.
       - Otherwise it keeps the upper half and sends the lower half.
@@ -47,6 +47,16 @@ def recursive_halving_reduce_scatter_mpi(
     After log2(P) rounds, only one block remains—and it is naturally ordered (process i gets block i).
 
     Assumes that P (the number of processes) is a power of 2.
+
+    Parameters:
+      output_tensor : torch.Tensor
+          Pre-allocated tensor of shape (block_size,) on a CUDA device.
+      input_tensor : torch.Tensor
+          1D tensor of shape (P * block_size,) representing local data.
+      group : Optional[MPI.Comm]
+          MPI communicator; defaults to MPI.COMM_WORLD.
+      async_op : bool
+          Non-blocking operations are not supported in this implementation.
     """
     assert not async_op, "Non-blocking operations not supported"
     comm = MPI.COMM_WORLD if group is None else group
@@ -138,7 +148,17 @@ def ring_reduce_scatter_mpi(
       - Receives a block from its left neighbor.
       - Immediately reduces the received block into its local copy.
 
-    After the loop, the fully reduced block is at index equal to the process’s rank.
+    After the loop, the fully reduced block is at index equal to the process's rank.
+
+    Parameters:
+      output_tensor : torch.Tensor
+          Pre-allocated tensor of shape (block_size,) on a CUDA device.
+      input_tensor : torch.Tensor
+          1D tensor of shape (P * block_size,) representing local data.
+      group : Optional[MPI.Comm]
+          MPI communicator; defaults to MPI.COMM_WORLD.
+      async_op : bool
+          Non-blocking operations are not supported in this implementation.
     """
     assert not async_op, "non-blocking primitives not supported"
     comm = MPI.COMM_WORLD if group is None else group
